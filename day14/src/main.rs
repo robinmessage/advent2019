@@ -97,40 +97,32 @@ fn topo_sort(reactions: &Reactions) -> Vec<String> {
 
 fn create_maximum_from(ore: i64, reactions: &Reactions, order: &Vec<String>) -> i64 {
     // Get to ore
-    let mut reactants = HashMap::<String, i64>::new();
-    let mut left_overs = HashMap::<String, i64>::new();
+    let mut reactants_needed = HashMap::<String, i64>::new();
     
     let mut ore = ore;
     let mut fuel = 0;
 
     while ore > 0 {
-        reactants.insert("FUEL".to_string(), 1);
+        reactants_needed.insert("FUEL".to_string(), 1);
 
         for name in order.iter().rev() {
-            let amount: &mut i64 = reactants.entry(name.to_string()).or_insert(0);
+            let amount: &mut i64 = reactants_needed.entry(name.to_string()).or_insert(0);
             
             if name == "ORE" {
                 ore -= *amount;
-                fuel += 1;
+                *amount = 0;
+                if ore >= 0 {
+                    fuel += 1;
+                }
                 continue;
             }
-
-            let left_over: &mut i64 = left_overs.entry(name.to_string()).or_insert(0);
-
-            println!("Need {} of {}, {} left over", amount, name, left_over);
-
-            let consumed = std::cmp::min(*amount, *left_over);
-
-            *amount -= consumed;
-            *left_over -= consumed;
 
             if *amount > 0 {
                 let reaction = reactions.get(name).unwrap();
                 let multiple = (*amount + reaction.0 as i64 - 1) / reaction.0 as i64; // Round up
-                *left_over += reaction.0 as i64 * multiple - *amount;
-                *amount = 0;
+                *amount -= reaction.0 as i64 * multiple;
                 for input in reaction.1.iter() {
-                    *reactants.entry(input.0.to_string()).or_insert(0) += input.1 as i64 * multiple;
+                    *reactants_needed.entry(input.0.to_string()).or_insert(0) += input.1 as i64 * multiple;
                 }
             }
         }
