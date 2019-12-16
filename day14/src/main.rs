@@ -61,27 +61,6 @@ fn reverse_reactions(reactions: &Reactions, order: &Vec<String>) -> i32 {
     }
 
     panic!("Never got to ORE");
-
-    /*let mut ore = 0;
-
-    while reactants.len() > 0 {
-        println!("{:#?}", reactants);
-        let mut new_reactants = HashMap::<&str, i32>::new();
-        for (reactant, amount) in reactants {
-            if reactant == "ORE" {
-                ore += amount;
-                continue;
-            }
-            let reaction = reactions.get(reactant).unwrap();
-            let multiple = (amount + reaction.0 - 1) / reaction.0; // Round up
-            for input in reaction.1.iter() {
-                *new_reactants.entry(&input.0).or_insert(0) += input.1 * multiple;
-            }
-        }
-        reactants = new_reactants;
-    }
-
-    return ore;*/
 }
 
 fn topo_sort(reactions: &Reactions) -> Vec<String> {
@@ -114,6 +93,50 @@ fn topo_sort(reactions: &Reactions) -> Vec<String> {
     depth_first(&mut env, "FUEL");
 
     return env.order;
+}
+
+fn create_maximum_from(ore: i64, reactions: &Reactions, order: &Vec<String>) -> i64 {
+    // Get to ore
+    let mut reactants = HashMap::<String, i64>::new();
+    let mut left_overs = HashMap::<String, i64>::new();
+    
+    let mut ore = ore;
+    let mut fuel = 0;
+
+    while ore > 0 {
+        reactants.insert("FUEL".to_string(), 1);
+
+        for name in order.iter().rev() {
+            let amount: &mut i64 = reactants.entry(name.to_string()).or_insert(0);
+            
+            if name == "ORE" {
+                ore -= *amount;
+                fuel += 1;
+                continue;
+            }
+
+            let left_over: &mut i64 = left_overs.entry(name.to_string()).or_insert(0);
+
+            println!("Need {} of {}, {} left over", amount, name, left_over);
+
+            let consumed = std::cmp::min(*amount, *left_over);
+
+            *amount -= consumed;
+            *left_over -= consumed;
+
+            if *amount > 0 {
+                let reaction = reactions.get(name).unwrap();
+                let multiple = (*amount + reaction.0 as i64 - 1) / reaction.0 as i64; // Round up
+                *left_over += reaction.0 as i64 * multiple - *amount;
+                *amount = 0;
+                for input in reaction.1.iter() {
+                    *reactants.entry(input.0.to_string()).or_insert(0) += input.1 as i64 * multiple;
+                }
+            }
+        }
+    }
+
+    return fuel;
 }
 
 fn main() {
