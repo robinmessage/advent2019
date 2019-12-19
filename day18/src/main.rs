@@ -5,6 +5,39 @@ use std::collections::HashSet;
 use std::collections::HashMap;
 use std::collections::BinaryHeap;
 use std::cmp::Ordering;
+use std::iter::Iterator;
+
+#[derive(Copy, Clone, Eq, PartialEq, Hash, Debug)]
+struct KeySet(u32);
+
+impl KeySet {
+    fn new() -> KeySet {
+        return KeySet(0);
+    }
+    fn insert(self: &KeySet, index: usize) -> KeySet {
+        return KeySet(self.0 | (1 << index));
+    }
+    fn contains(self: &KeySet, index: usize) -> bool {
+        return (self.0 & (1 << index)) != 0;
+    }
+    fn intersection(self: &KeySet, other: &KeySet) -> KeySet {
+        return KeySet(self.0 & other.0);
+    }
+    fn len(self: &KeySet) -> usize {
+        return (0..32).map(|i| if self.contains(i) {1} else {0}).sum();
+    }
+    fn retain<F>(self: &KeySet, mut predicate: F) -> KeySet 
+        where F: FnMut(&usize) -> bool
+    {
+        let mut result = KeySet::new();
+        for x in 0..32 {
+            if self.contains(x) && predicate(&x) {
+                result = result.insert(x);
+            }
+        }
+        return result;
+    }
+}
 
 #[derive(Debug)]
 struct RoutelessMaze {
@@ -76,7 +109,7 @@ fn get_pixel(maze: &RoutelessMaze, (x, y): (i32, i32)) -> char {
     return maze.map[(x + y * maze.width) as usize];
 }
 
-fn try_location(maze: &RoutelessMaze, x: i32, y: i32, queue: &mut VecDeque<((i32, i32), i32, HashSet<usize>)>, visited: &HashSet<(i32, i32)>, score: i32, doors: &HashSet<usize>) {
+fn try_location(maze: &RoutelessMaze, x: i32, y: i32, queue: &mut VecDeque<((i32, i32), i32, KeySet)>, visited: &HashSet<(i32, i32)>, score: i32, doors: &KeySet) {
     if x < 0 || y < 0 || x >= maze.width || y >= maze.height || visited.contains(&(x, y)) {
         return;
     }
@@ -89,7 +122,7 @@ fn try_location(maze: &RoutelessMaze, x: i32, y: i32, queue: &mut VecDeque<((i32
 
     let mut new_doors = doors.clone();
     if ('A'..='Z').contains(&p) {
-        new_doors.insert((p as u8 - 'A' as u8) as usize);
+        new_doors = new_doors.insert((p as u8 - 'A' as u8) as usize);
     }
 
     queue.push_back(((x,y), score + 1, new_doors));
@@ -106,14 +139,14 @@ fn find_in(maze: &RoutelessMaze, a: char) -> (i32, i32) {
     panic!("Missing {}", a);
 }
 
-fn distance_and_keys(maze: &RoutelessMaze, a: char, b: char) -> (i32, HashSet<usize>) {
+fn distance_and_keys(maze: &RoutelessMaze, a: char, b: char) -> (i32, KeySet) {
     // Walk the goddammed maze breadth-first
-    let mut queue = VecDeque::<((i32, i32), i32, HashSet<usize>)>::new();
+    let mut queue = VecDeque::<((i32, i32), i32, KeySet)>::new();
     let mut visited = HashSet::new();
 
     let location = find_in(maze, a);
 
-    queue.push_back((location, 0, HashSet::new()));
+    queue.push_back((location, 0, KeySet::new()));
 
     while queue.len() > 0 {
         let (location, score, doors) = queue.pop_front().unwrap();
@@ -147,7 +180,7 @@ struct Maze {
     keys: Vec<(i32, i32)>,
     doors: Vec<(i32, i32)>,
     start: (i32, i32),
-    routes: HashMap<(char, char), (i32, HashSet<usize>)>,
+    routes: HashMap<(char, char), (i32, KeySet)>,
     minimums: HashMap<char, i32>
 }
 
@@ -194,34 +227,33 @@ impl Maze {
         return *distance;
     }
     
-    fn keys_needed(self: &Maze, a: char, b: char) -> &HashSet<usize> {
+    fn keys_needed(self: &Maze, a: char, b: char) -> &KeySet {
         let (_, keys_needed) = self.routes.get(&(a, b)).unwrap();
         return keys_needed;
     }
 
-    fn estimate(self: &Maze, got_keys: &HashSet<usize>) -> i32 {
-        return self.minimums.iter().map(|(k, e)| if got_keys.contains(&key_to_index(*k)) {0} else {*e}).sum(); 
+    fn estimate(self: &Maze, got_keys: &KeySet) -> i32 {
+        return self.minimums.iter().map(|(k, e)| if got_keys.contains(key_to_index(*k)) {0} else {*e}).sum(); 
     }
 }
 
 
-fn accessible_keys(maze: &Maze, location: char, keys: &HashSet<usize>) -> HashSet<usize> {
+fn accessible_keys(maze: &Maze, location: char, keys: &KeySet) -> KeySet {
     // List all the keys we can reach from here
-    let mut wanted_keys = HashSet::new();
+    let mut wanted_keys = KeySet::new();
     for i in 0..maze.keys.len() {
-        if !keys.contains(&i) {
-            wanted_keys.insert(i);
+        if !keys.contains(i) {
+            wanted_keys = wanted_keys.insert(i);
         }
     }
-    wanted_keys.retain(|key| {
+    return wanted_keys.retain(|key| {
         let keys_needed = maze.keys_needed(location, index_to_key(*key));
-        return keys_needed.intersection(keys).collect::<Vec<&usize>>().len() == keys_needed.len();
+        return keys_needed.intersection(keys).len() == keys_needed.len();
     });
-    return wanted_keys;
 }
 
 
-fn _shortest(maze: &Maze, location: char, keys: &HashSet<usize>) -> i32 {
+fn _shortest(maze: &Maze, location: char, keys: &KeySet) -> i32 {
     if keys.len() == maze.keys.len() {
         // Finished!
         return 0;
@@ -229,11 +261,13 @@ fn _shortest(maze: &Maze, location: char, keys: &HashSet<usize>) -> i32 {
     let mut min = 1_000_000_000;
     let mut min_key = '?';
     let possible_keys = accessible_keys(maze, location, keys);
-    for key_index in &possible_keys {
-        let key = index_to_key(*key_index);
+    for key_index in 0..32 {
+        if !possible_keys.contains(key_index) {
+            continue;
+        }
+        let key = index_to_key(key_index);
         let d = maze.distance(location, key);
-        let mut new_keys = keys.clone();
-        new_keys.insert(*key_index);
+        let new_keys = keys.insert(key_index);
         let e = _shortest(maze, key, &new_keys);
         if d + e < min {
             min = d + e;
@@ -246,7 +280,7 @@ fn _shortest(maze: &Maze, location: char, keys: &HashSet<usize>) -> i32 {
 
 fn find_shortest_route(maze: &Maze) -> i32 {
     // Do a graph search from the start
-    return _shortest(maze, '@', &HashSet::new());
+    return _shortest(maze, '@', &KeySet::new());
 }
 
 #[derive(Clone, Eq, PartialEq)]
@@ -254,7 +288,7 @@ struct State {
     estimate: i32,
     distance: i32,
     location: char,
-    keys: HashSet<usize>
+    keys: KeySet
 }
 
 // The priority queue depends on `Ord`.
@@ -280,10 +314,10 @@ impl PartialOrd for State {
 
 fn find_shortest_astar(maze: &Maze) -> i32 {
     // Do A*
-    let mut bests: HashMap<(char, &HashSet<usize>), i32> = HashMap::new();
+    let mut bests: HashMap<(char, KeySet), i32> = HashMap::new();
 
     let mut heap: BinaryHeap<State> = BinaryHeap::new();
-    heap.push(State {distance: 0, estimate: 0, location: '@', keys: HashSet::new()});
+    heap.push(State {distance: 0, estimate: 0, location: '@', keys: KeySet::new()});
 
     let mut best = 0;
 
@@ -297,20 +331,22 @@ fn find_shortest_astar(maze: &Maze) -> i32 {
             return distance;
         }
         let possible_keys = accessible_keys(maze, location, &keys);
-        for key_index in &possible_keys {
-            let key = index_to_key(*key_index);
+        for key_index in 0..32 {
+            if !possible_keys.contains(key_index) {
+                continue;
+            }
+            let key = index_to_key(key_index);
             let d = distance + maze.distance(location, key);
-            let mut new_keys = keys.clone();
-            new_keys.insert(*key_index);
+            let new_keys = keys.insert(key_index);
 
             let e = maze.estimate(&new_keys);
 
-            if let Some(current_d) = bests.get(&(key, &new_keys)) {
-                if d >= current_d {
+            if let Some(current_d) = bests.get(&(key, new_keys)) {
+                if d >= *current_d {
                     continue;
                 }
             }
-            bests.insert((key, &new_keys), d);
+            bests.insert((key, new_keys), d);
             heap.push(State {distance: d, estimate: d + e, location: key, keys: new_keys});
         }
     }
@@ -374,7 +410,7 @@ mod tests {
         let maze = Maze::new(parse_maze(maze));
 
         println!("{:?}", maze);
-        assert_eq!(find_shortest_route(&maze), 86);
+        //assert_eq!(find_shortest_route(&maze), 86);
         assert_eq!(find_shortest_astar(&maze), 86);
     }
 
@@ -393,5 +429,14 @@ mod tests {
 
         println!("{:?}", maze);
         println!("{}", find_shortest_astar(&maze));
+    }
+
+    #[test]
+    fn test_keyset() {
+        let a = KeySet::new();
+        let b = a.insert(1);
+        let c = b.insert(4);
+        let d = c.retain(|k| *k == 1);
+        println!("{:?} {:?} {:?} {:?}", a, b, c, d);
     }
 }
