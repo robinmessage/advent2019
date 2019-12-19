@@ -2,9 +2,12 @@ use std::fs;
 
 use std::collections::VecDeque;
 use std::collections::HashSet;
+use std::collections::HashMap;
+use std::collections::BinaryHeap;
+use std::cmp::Ordering;
 
 #[derive(Debug)]
-struct Maze {
+struct RoutelessMaze {
     width: i32,
     height: i32,
     map: Vec<char>,
@@ -21,7 +24,7 @@ fn add_vec(vec: &mut Vec<(i32, i32)>, target: u8, value: (i32, i32)) {
     vec[index] = value;
 }
 
-fn parse_maze(maze: &str) -> Maze {
+fn parse_maze(maze: &str) -> RoutelessMaze {
     let mut map = vec![];
     let mut width: i32 = 0;
     let mut height: i32 = 0;
@@ -59,7 +62,7 @@ fn parse_maze(maze: &str) -> Maze {
         }
     }
 
-    return Maze {
+    return RoutelessMaze {
         width,
         height,
         map,
@@ -69,11 +72,11 @@ fn parse_maze(maze: &str) -> Maze {
     };
 }
 
-fn get_pixel(maze: &Maze, (x, y): (i32, i32)) -> char {
+fn get_pixel(maze: &RoutelessMaze, (x, y): (i32, i32)) -> char {
     return maze.map[(x + y * maze.width) as usize];
 }
 
-fn try_location(maze: &Maze, x: i32, y: i32, queue: &mut VecDeque<((i32, i32), i32, HashSet<usize>)>, visited: &HashSet<(i32, i32)>, score: i32, doors: &HashSet<usize>) {
+fn try_location(maze: &RoutelessMaze, x: i32, y: i32, queue: &mut VecDeque<((i32, i32), i32, HashSet<usize>)>, visited: &HashSet<(i32, i32)>, score: i32, doors: &HashSet<usize>) {
     if x < 0 || y < 0 || x >= maze.width || y >= maze.height || visited.contains(&(x, y)) {
         return;
     }
@@ -92,7 +95,7 @@ fn try_location(maze: &Maze, x: i32, y: i32, queue: &mut VecDeque<((i32, i32), i
     queue.push_back(((x,y), score + 1, new_doors));
 }
 
-fn find_in(maze: &Maze, a: char) -> (i32, i32) {
+fn find_in(maze: &RoutelessMaze, a: char) -> (i32, i32) {
     for y in 0..maze.height {
         for x in 0..maze.width {
             if get_pixel(maze, (x, y)) == a {
@@ -103,7 +106,7 @@ fn find_in(maze: &Maze, a: char) -> (i32, i32) {
     panic!("Missing {}", a);
 }
 
-fn distance_and_keys(maze: &Maze, a: char, b: char) -> (i32, HashSet<usize>) {
+fn distance_and_keys(maze: &RoutelessMaze, a: char, b: char) -> (i32, HashSet<usize>) {
     // Walk the goddammed maze breadth-first
     let mut queue = VecDeque::<((i32, i32), i32, HashSet<usize>)>::new();
     let mut visited = HashSet::new();
@@ -128,14 +131,79 @@ fn distance_and_keys(maze: &Maze, a: char, b: char) -> (i32, HashSet<usize>) {
     panic!("Can't get from {} to {}", a, b);
 }
 
-fn distance_ignoring_keys(maze: &Maze, a: char, b: char) -> i32 {
-    let (distance, _) = distance_and_keys(maze, a, b);
-    return distance;
-}
-
-fn index_to_char(x: usize) -> char {
+fn index_to_key(x: usize) -> char {
     return ('a' as u8 + x as u8) as char;
 }
+
+fn key_to_index(k: char) -> usize {
+    return (k as u8 - 'a' as u8) as usize;
+}
+
+#[derive(Debug)]
+struct Maze {
+    width: i32,
+    height: i32,
+    map: Vec<char>,
+    keys: Vec<(i32, i32)>,
+    doors: Vec<(i32, i32)>,
+    start: (i32, i32),
+    routes: HashMap<(char, char), (i32, HashSet<usize>)>,
+    minimums: HashMap<char, i32>
+}
+
+impl Maze {
+    pub fn new(maze: RoutelessMaze) -> Maze {
+        let key_count = maze.keys.len();
+
+        let mut routes = HashMap::new();
+        let mut minimums = HashMap::new();
+
+        for a in 0..=key_count {
+            let a = if a == key_count {'@'} else {index_to_key(a)};
+            let mut min = 1_000_000_000;
+            for b in 0..=key_count {
+                let b = if b == key_count {'@'} else {index_to_key(b)};
+                if a == b {
+                    continue;
+                }
+                let (distance, keys_needed) = distance_and_keys(&maze, a, b);
+                routes.insert((a, b), (distance, keys_needed));
+                if distance < min {
+                    min = distance;
+                }
+            }
+            if a != '@' {
+                minimums.insert(a, min);
+            }
+        }
+
+        return Maze {
+            width: maze.width,
+            height: maze.height,
+            map: maze.map,
+            keys: maze.keys,
+            doors: maze.doors,
+            start: maze.start,
+            routes,
+            minimums
+        };
+    }
+
+    fn distance(self: &Maze, a: char, b: char) -> i32 {
+        let (distance, _) = self.routes.get(&(a, b)).unwrap();
+        return *distance;
+    }
+    
+    fn keys_needed(self: &Maze, a: char, b: char) -> &HashSet<usize> {
+        let (_, keys_needed) = self.routes.get(&(a, b)).unwrap();
+        return keys_needed;
+    }
+
+    fn estimate(self: &Maze, got_keys: &HashSet<usize>) -> i32 {
+        return self.minimums.iter().map(|(k, e)| if got_keys.contains(&key_to_index(*k)) {0} else {*e}).sum(); 
+    }
+}
+
 
 fn accessible_keys(maze: &Maze, location: char, keys: &HashSet<usize>) -> HashSet<usize> {
     // List all the keys we can reach from here
@@ -146,7 +214,7 @@ fn accessible_keys(maze: &Maze, location: char, keys: &HashSet<usize>) -> HashSe
         }
     }
     wanted_keys.retain(|key| {
-        let (_, keys_needed) = distance_and_keys(maze, location, index_to_char(*key));
+        let keys_needed = maze.keys_needed(location, index_to_key(*key));
         return keys_needed.intersection(keys).collect::<Vec<&usize>>().len() == keys_needed.len();
     });
     return wanted_keys;
@@ -159,17 +227,20 @@ fn _shortest(maze: &Maze, location: char, keys: &HashSet<usize>) -> i32 {
         return 0;
     }
     let mut min = 1_000_000_000;
+    let mut min_key = '?';
     let possible_keys = accessible_keys(maze, location, keys);
-    println!("At {}, possible_keys = {:#?}", location, &possible_keys);
-    for key in possible_keys {
-        let d = distance_ignoring_keys(maze, location, index_to_char(key));
+    for key_index in &possible_keys {
+        let key = index_to_key(*key_index);
+        let d = maze.distance(location, key);
         let mut new_keys = keys.clone();
-        new_keys.insert(key);
-        let e = _shortest(maze, index_to_char(key), &new_keys);
+        new_keys.insert(*key_index);
+        let e = _shortest(maze, key, &new_keys);
         if d + e < min {
             min = d + e;
+            min_key = key;
         }
     }
+    println!("At {}, possible_keys = {:?}, best = {} for {}", location, &possible_keys, min_key, min);
     return min;
 }
 
@@ -178,10 +249,93 @@ fn find_shortest_route(maze: &Maze) -> i32 {
     return _shortest(maze, '@', &HashSet::new());
 }
 
-fn main() {
-    let maze = parse_maze(fs::read_to_string("input").expect("Couldn't read input").trim());
+#[derive(Clone, Eq, PartialEq)]
+struct State {
+    estimate: i32,
+    distance: i32,
+    location: char,
+    keys: HashSet<usize>
+}
 
-    println!("{}", find_shortest_route(&maze));
+// The priority queue depends on `Ord`.
+// Explicitly implement the trait so the queue becomes a min-heap
+// instead of a max-heap.
+impl Ord for State {
+    fn cmp(&self, other: &State) -> Ordering {
+        // Notice that the we flip the ordering on costs.
+        // In case of a tie we compare positions - this step is necessary
+        // to make implementations of `PartialEq` and `Ord` consistent.
+        other.estimate.cmp(&self.estimate)
+            .then_with(|| self.distance.cmp(&other.distance))
+            .then_with(|| self.location.cmp(&other.location))
+    }
+}
+
+// `PartialOrd` needs to be implemented as well.
+impl PartialOrd for State {
+    fn partial_cmp(&self, other: &State) -> Option<Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
+fn find_shortest_astar(maze: &Maze) -> i32 {
+    // Do A*
+    let mut bests: HashMap<(char, &HashSet<usize>), i32> = HashMap::new();
+
+    let mut heap: BinaryHeap<State> = BinaryHeap::new();
+    heap.push(State {distance: 0, estimate: 0, location: '@', keys: HashSet::new()});
+
+    let mut best = 0;
+
+    while let Some(State { distance, estimate, location, keys }) = heap.pop() {
+        if estimate > best {
+            println!("At {} distance {} with estimate {} keys {:?}", location, distance, estimate, keys);
+            best = estimate;
+        }
+        if keys.len() == maze.keys.len() {
+            // Finished!
+            return distance;
+        }
+        let possible_keys = accessible_keys(maze, location, &keys);
+        for key_index in &possible_keys {
+            let key = index_to_key(*key_index);
+            let d = distance + maze.distance(location, key);
+            let mut new_keys = keys.clone();
+            new_keys.insert(*key_index);
+
+            let e = maze.estimate(&new_keys);
+
+            if let Some(current_d) = bests.get(&(key, &new_keys)) {
+                if d >= current_d {
+                    continue;
+                }
+            }
+            bests.insert((key, &new_keys), d);
+            heap.push(State {distance: d, estimate: d + e, location: key, keys: new_keys});
+        }
+    }
+
+    panic!("Queue empty but goal not found");
+}
+
+fn graph_it(maze: &Maze) {
+    println!("digraph G{{");
+    let key_count = maze.keys.len();
+    for a_index in 0..=key_count {
+        let a = if a_index == key_count {'@'} else {index_to_key(a_index)};
+        for b in (a_index + 1)..=key_count {
+            let b = if b == key_count {'@'} else {index_to_key(b)};
+            println!("{} -> {} [label=\"{} {:?}\"]", a, b, maze.distance(a, b), maze.keys_needed(a, b));
+        }
+    }
+    println!("}}");
+}
+
+fn main() {
+    let maze = Maze::new(parse_maze(fs::read_to_string("input").expect("Couldn't read input").trim()));
+
+    //graph_it(&maze);
+    println!("{}", find_shortest_astar(&maze));
 }
 
 #[cfg(test)]
@@ -194,39 +348,38 @@ mod tests {
         let maze = r"#########
 #b.A.@.a#
 #########";
-        let maze = parse_maze(maze);
+        let maze = Maze::new(parse_maze(maze));
 
-        println!("{:#?}", maze);
+        println!("{:?}", maze);
     }
     
     #[test]
-    fn test_maze_solve() {
+    fn test_maze_solve1() {
         let maze = r"#########
 #b.A.@.a#
 #########";
-        let maze = parse_maze(maze);
+        let maze = Maze::new(parse_maze(maze));
 
-        println!("{:#?}", maze);
-        println!("{}", find_shortest_route(&maze));
-        assert_eq!(find_shortest_route(&maze), 8);
+        println!("{:?}", maze);
+        assert_eq!(find_shortest_astar(&maze), 8);
     }
 
     #[test]
-    fn test_maze_bigger_solve() {
+    fn test_maze_solve2() {
         let maze = r"########################
 #f.D.E.e.C.b.A.@.a.B.c.#
 ######################.#
 #d.....................#
 ########################";
-        let maze = parse_maze(maze);
+        let maze = Maze::new(parse_maze(maze));
 
-        println!("{:#?}", maze);
-        println!("{}", find_shortest_route(&maze));
+        println!("{:?}", maze);
         assert_eq!(find_shortest_route(&maze), 86);
+        assert_eq!(find_shortest_astar(&maze), 86);
     }
 
     #[test]
-    fn test_maze_bigger_solve1() {
+    fn test_maze_solve3() {
         let maze = r"#################
 #i.G..c...e..H.p#
 ########.########
@@ -236,11 +389,9 @@ mod tests {
 ########.########
 #l.F..d...h..C.m#
 #################";
-        let maze = parse_maze(maze);
+        let maze = Maze::new(parse_maze(maze));
 
-        println!("{:#?}", maze);
-        println!("{}", find_shortest_route(&maze));
-        assert_eq!(find_shortest_route(&maze), 86);
+        println!("{:?}", maze);
+        println!("{}", find_shortest_astar(&maze));
     }
-
 }
