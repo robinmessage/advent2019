@@ -31,7 +31,6 @@ fn parse_maze(maze: &str) -> PlainMaze {
         if c == '\n' { // New line
             let len = row.len() as i32;
             if first_row || len == width {
-                println!("Got {}, {}, {}, {}, {}", first_row, len, width, row.len(), row.iter().collect::<String>());
                 height += 1;
                 width = len;
                 map.append(&mut row);
@@ -141,6 +140,10 @@ impl PortalMaze {
             portals
         };
     }
+
+    fn is_inner(&self, location: &(i32, i32)) -> bool {
+        location.0 > 2 && location.0 < self.width - 3 && location.1 > 2 && location.1 < self.height - 3
+    }
 }
 
 #[derive(Debug)]
@@ -151,7 +154,7 @@ struct JoinedMaze {
     entrance: (i32, i32),
     exit: (i32, i32),
     portals: HashMap<Portal, Vec<(i32, i32)>>,
-    portal_map: HashMap<(i32, i32), (i32, i32, Portal)>
+    portal_map: HashMap<(i32, i32), (i32, i32, Portal, bool)>
 }
 
 impl JoinedMaze {
@@ -165,7 +168,7 @@ impl JoinedMaze {
             for i in 0..locations.len() {
                 let location = locations[i];
                 let other = locations[locations.len() - i - 1]; // Map entrance/exit to itself
-                portal_map.insert(location, (other.0, other.1, *portal));
+                portal_map.insert(location, (other.0, other.1, *portal, maze.is_inner(&location)));
             }
         }
 
@@ -185,16 +188,16 @@ impl JoinedMaze {
     }
 }
 
-fn try_location(maze: &JoinedMaze, visited: &mut HashSet<(i32, i32)>, queue: &mut VecDeque<((i32, i32), i32)>, location: (i32, i32), distance: i32) {
-    if visited.contains(&location) {
-        return;
-    }
-    if maze.get(location.0, location.1) == '.' {
-        queue.push_back((location, distance + 1));
-    }
-}
-
 fn solve(maze: &JoinedMaze) -> i32 {
+    fn try_location(maze: &JoinedMaze, visited: &mut HashSet<(i32, i32)>, queue: &mut VecDeque<((i32, i32), i32)>, location: (i32, i32), distance: i32) {
+        if visited.contains(&location) {
+            return;
+        }
+        if maze.get(location.0, location.1) == '.' {
+            queue.push_back((location, distance + 1));
+        }
+    }
+
     let offsets = vec![(1, 0), (-1, 0), (0, 1), (0, -1)];
 
     let mut queue: VecDeque<((i32, i32), i32)> = VecDeque::new();
@@ -212,9 +215,57 @@ fn solve(maze: &JoinedMaze) -> i32 {
             let l = (location.0 + offset.0, location.1 + offset.1);
             try_location(maze, &mut visited, &mut queue, l, distance);
         }
-        if let Some((x, y, p)) = maze.portal_map.get(&location) {
+        if let Some((x, y, p, inner)) = maze.portal_map.get(&location) {
             try_location(maze, &mut visited, &mut queue, (*x, *y), distance);
-            println!("  with portal {:?}", p);
+            println!("  with portal {:?} inner: {}", p, inner);
+        }
+    }
+
+    panic!("Couldn't find the way");
+}
+
+fn solve_inception(maze: &JoinedMaze) -> i32 {
+    fn try_location(maze: &JoinedMaze, visited: &mut HashSet<(i32, i32, i32)>, queue: &mut VecDeque<(i32, i32, i32, i32)>, location: (i32, i32, i32), distance: i32) {
+        if visited.contains(&location) {
+            return;
+        }
+        if maze.get(location.0, location.1) == '.' {
+            queue.push_back((location.0, location.1, location.2, distance + 1));
+        }
+    }
+
+    let offsets = vec![(1, 0), (-1, 0), (0, 1), (0, -1)];
+
+    let mut queue: VecDeque<(i32, i32, i32, i32)> = VecDeque::new();
+    let mut visited: HashSet<(i32, i32, i32)> = HashSet::new();
+
+    queue.push_back((maze.entrance.0, maze.entrance.1, 0, 0));
+
+    while let Some((x, y, depth, distance)) = queue.pop_front() {
+        println!("Visit {}, {} at {} ({})", x, y, depth, distance);
+        if (x, y) == maze.exit && depth == 0 {
+            return distance;
+        }
+        visited.insert((x, y, depth));
+        for offset in &offsets {
+            let l = (x + offset.0, y + offset.1, depth);
+            try_location(maze, &mut visited, &mut queue, l, distance);
+        }
+        if let Some((px, py, p, inner)) = maze.portal_map.get(&(x, y)) {
+            if *px != x && *py != y { // Ignore self-closed AA and ZZ portals
+                println!("  with portal {:?} inner: {}", p, inner);
+                let lower = (*px, *py, depth - 1);
+                let upper = (*px, *py, depth + 1);
+                if *inner {
+                    if depth == 0 || !visited.contains(&lower) {
+                        try_location(maze, &mut visited, &mut queue, upper, distance);
+                    }
+                } else {
+                    if depth > 0 {
+                        try_location(maze, &mut visited, &mut queue, lower, distance);
+                    }
+                }
+            }
         }
     }
 
@@ -485,6 +536,7 @@ fn main() {
 
     println!("{:#?}", maze);
     println!("{}", solve(&maze));
+    println!("{}", solve_inception(&maze));
 }
 
 #[cfg(test)]
@@ -544,5 +596,78 @@ FG..#########.....#
         let maze = JoinedMaze::new(PortalMaze::new(parse_maze(maze)));
 
         assert_eq!(solve(&maze), 23);
+    }
+
+    #[test]
+    fn test_maze_solve2() {
+        let maze = r"         A           
+         A           
+  #######.#########  
+  #######.........#  
+  #######.#######.#  
+  #######.#######.#  
+  #######.#######.#  
+  #####  B    ###.#  
+BC...##  C    ###.#  
+  ##.##       ###.#  
+  ##...DE  F  ###.#  
+  #####    G  ###.#  
+  #########.#####.#  
+DE..#######...###.#  
+  #.#########.###.#  
+FG..#########.....#  
+  ###########.#####  
+             Z       
+             Z       
+";
+        let maze = JoinedMaze::new(PortalMaze::new(parse_maze(maze)));
+
+        assert_eq!(solve_inception(&maze), 26);
+    }
+
+
+    #[test]
+    fn test_maze_solve3() {
+        let maze = r"             Z L X W       C                 
+             Z P Q B       K                 
+  ###########.#.#.#.#######.###############  
+  #...#.......#.#.......#.#.......#.#.#...#  
+  ###.#.#.#.#.#.#.#.###.#.#.#######.#.#.###  
+  #.#...#.#.#...#.#.#...#...#...#.#.......#  
+  #.###.#######.###.###.#.###.###.#.#######  
+  #...#.......#.#...#...#.............#...#  
+  #.#########.#######.#.#######.#######.###  
+  #...#.#    F       R I       Z    #.#.#.#  
+  #.###.#    D       E C       H    #.#.#.#  
+  #.#...#                           #...#.#  
+  #.###.#                           #.###.#  
+  #.#....OA                       WB..#.#..ZH
+  #.###.#                           #.#.#.#  
+CJ......#                           #.....#  
+  #######                           #######  
+  #.#....CK                         #......IC
+  #.###.#                           #.###.#  
+  #.....#                           #...#.#  
+  ###.###                           #.#.#.#  
+XF....#.#                         RF..#.#.#  
+  #####.#                           #######  
+  #......CJ                       NM..#...#  
+  ###.#.#                           #.###.#  
+RE....#.#                           #......RF
+  ###.###        X   X       L      #.#.#.#  
+  #.....#        F   Q       P      #.#.#.#  
+  ###.###########.###.#######.#########.###  
+  #.....#...#.....#.......#...#.....#.#...#  
+  #####.#.###.#######.#######.###.###.#.#.#  
+  #.......#.......#.#.#.#.#...#...#...#.#.#  
+  #####.###.#####.#.#.#.#.###.###.#.###.###  
+  #.......#.....#.#...#...............#...#  
+  #############.#.#.###.###################  
+               A O F   N                     
+               A A D   M                     
+";
+        let maze = JoinedMaze::new(PortalMaze::new(parse_maze(maze)));
+
+        assert_eq!(solve_inception(&maze), 396);
     }
 }
