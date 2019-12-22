@@ -267,10 +267,10 @@ fn to_decisions(solutions: &Vec<(&Vec<bool>,  Vec<Vec<usize>>)>, sight: usize) -
                     }
                 }
             }
-            if jump_found {
-                choice.entry(visible_state.to_vec()).or_insert((0, 0)).1 += 1;
-            } else if walk_found {
+            if walk_found {
                 choice.entry(visible_state.to_vec()).or_insert((0, 0)).0 += 1;
+            } else if jump_found {
+                choice.entry(visible_state.to_vec()).or_insert((0, 0)).1 += 1;
             }
         }
     }
@@ -530,11 +530,13 @@ OR T J
 */
 
         let mut prog = from_ascii(
-r"OR F J
-OR I J
-AND E J
-OR H J
+r"NOT B T
+NOT C J
+OR T J
 AND D J
+AND H J
+NOT A T
+OR T J
 RUN
 ");
 
@@ -572,6 +574,29 @@ OR H J
 AND D J
 
 However, by jumping when it doesn't need to, it gets itself in trouble by wasting its visions. So let's try prefering to walk.
+*/
+
+/*
+Prefering to walk takes us back to:
+Ab_De__H_
+Ab_DEf_Hi
+ABcDef_H_
+ABcDEf_Hi
+a__DEf_H_
+a__DEf_hI
+a__DEF___
+a__De__H_
+
+which a simpler solution would be:
+NOT B T
+NOT C J
+OR T J
+AND D J
+AND H J
+NOT A T
+OR T J
+
+Since we can use the insight that if H is true in all of the jump cases, then we can ignore E and F and just jump to H. If H is not available, we can jump to E directly.
 */
 
         let mut output = run(&mut machine, &mut prog);
