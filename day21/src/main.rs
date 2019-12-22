@@ -142,14 +142,14 @@ fn from_ascii(input: &str) -> Vec<Word> {
     input.as_bytes().iter().map(|c| *c as u8 as Word).collect()
 }
 
-fn states(count: usize) -> Vec<Vec<bool>> {
+fn states(count: usize, sight: usize) -> Vec<Vec<bool>> {
     let mut states = vec![];
     for i in 0..(1 << count) {
         let mut state = vec![];
         for j in 0..count {
             state.push(i & (1 << j) != 0);
         }
-        for _ in 0..4 {
+        for _ in 0..sight {
             state.push(true);
         }
         states.push(state);
@@ -175,15 +175,15 @@ fn passable_states(mut states: Vec<Vec<bool>>) -> Vec<Vec<bool>> {
     return states;
 }
 
-fn solve(state: &Vec<bool>, pos: usize) -> Vec<Vec<usize>> {
-    if pos + 4 >= state.len() {
+fn solve(state: &Vec<bool>, pos: usize, sight: usize) -> Vec<Vec<usize>> {
+    if pos + sight >= state.len() {
         return vec![vec![]];
     }
     let mut results = vec![];
     // Jump
     if state[pos + 3] {
         // Jump at pos
-        let mut result = solve(state, pos + 4);
+        let mut result = solve(state, pos + 4, sight);
         for r in result.iter_mut() {
             r.insert(0, pos);
         }
@@ -192,7 +192,7 @@ fn solve(state: &Vec<bool>, pos: usize) -> Vec<Vec<usize>> {
     // Don't jump
     if state[pos] {
         // No jump here
-        results.append(&mut solve(state, pos + 1));
+        results.append(&mut solve(state, pos + 1, sight));
     }
     return results;
 }
@@ -208,12 +208,12 @@ fn drop_impossible(mut solutions: Vec<(&Vec<bool>,  Vec<Vec<usize>>)>) -> Vec<(&
     return solutions;
 }
 
-fn solve_all(states: &Vec<Vec<bool>>) -> Vec<(&Vec<bool>,  Vec<Vec<usize>>)> {
-    drop_impossible(states.iter().map(|state| (state, solve(&state, 0))).collect())
+fn solve_all(states: &Vec<Vec<bool>>, sight: usize) -> Vec<(&Vec<bool>,  Vec<Vec<usize>>)> {
+    drop_impossible(states.iter().map(|state| (state, solve(&state, 0, sight))).collect())
 }
 
-fn print_states_and_solutions(states: &Vec<Vec<bool>>) {
-    for (state, solution) in solve_all(states) {
+fn print_states_and_solutions(states: &Vec<Vec<bool>>, sight: usize) {
+    for (state, solution) in solve_all(states, sight) {
         println!("{} {:?}", state.iter().map(|s| if *s {'#'} else {' '}).collect::<String>(), solution);
     }
 }
@@ -367,9 +367,9 @@ fn main() {
 
     print_simplified_decisions(&simplify(&ds, 0, 4));*/
 
-    let states12 = passable_states(states(13));
+    let states12 = passable_states(states(9, 9));
 
-    let decisions = to_decisions(&solve_all(&states12), 9);
+    let decisions = to_decisions(&solve_all(&states12, 9), 9);
     println!("{:?}", print_decisions(&decisions));
 
     let ds = decision_set(&decisions);
@@ -527,6 +527,25 @@ NOT A T
 OR T J
 RUN
 ");
+
+/*
+Sunday afternoon, seeing that you can simplify the following pairs
+...Xy...
+...x_...
+into ...(x or y)... (where the ...s before are the same, and the afters also)
+
+So, we've got NOT A as a simple condition for those cases
+The first part of all the other cases are then covered by NOT B OR NOT C AND D.
+The second part of the other cases are:
+Ef_Hi
+Ef_Hi
+ef_H_
+e__H_
+
+These don't simplify, and you can jump on case A__DEf__I, but you don't need to (you can walk one then jump to E)
+I wonder if I make my search prefer jumping, will it find a simpler expression?
+*/
+        
 
         let mut output = run(&mut machine, &mut prog);
 
