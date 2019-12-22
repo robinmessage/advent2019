@@ -267,10 +267,10 @@ fn to_decisions(solutions: &Vec<(&Vec<bool>,  Vec<Vec<usize>>)>, sight: usize) -
                     }
                 }
             }
-            if walk_found && !jump_found {
-                choice.entry(visible_state.to_vec()).or_insert((0, 0)).0 += 1;
-            } else if jump_found && !walk_found {
+            if jump_found {
                 choice.entry(visible_state.to_vec()).or_insert((0, 0)).1 += 1;
+            } else if walk_found {
+                choice.entry(visible_state.to_vec()).or_insert((0, 0)).0 += 1;
             }
         }
     }
@@ -509,8 +509,10 @@ NOT B T
 AND T J
 NOT G T
 */
-        let mut prog = from_ascii(
-r"NOT G T
+
+/*
+Submitted answer:
+NOT G T
 NOT F J
 OR J T
 NOT C J
@@ -525,6 +527,14 @@ AND D J
 AND H J
 NOT A T
 OR T J
+*/
+
+        let mut prog = from_ascii(
+r"OR F J
+OR I J
+AND E J
+OR H J
+AND D J
 RUN
 ");
 
@@ -544,8 +554,25 @@ e__H_
 
 These don't simplify, and you can jump on case A__DEf__I, but you don't need to (you can walk one then jump to E)
 I wonder if I make my search prefer jumping, will it find a simpler expression?
+
 */
-        
+
+/*
+If you prefer to jump, you get:
+___DEf_hI
+___DEF___
+___De__H_
+___DEf_H_
+
+which makes sense but seems complex. However, I think this is simply covered by:
+OR F J
+OR I J
+AND E J
+OR H J
+AND D J
+
+However, by jumping when it doesn't need to, it gets itself in trouble by wasting its visions. So let's try prefering to walk.
+*/
 
         let mut output = run(&mut machine, &mut prog);
 
