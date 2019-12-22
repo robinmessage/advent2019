@@ -345,9 +345,10 @@ fn simplify(decisions: &HashSet<&Vec<bool>>, n: usize, count: usize) -> HashSet<
 
 fn print_simplified_decisions(ds: &HashSet<Vec<Option<bool>>>) {
     fn what(d: &Vec<Option<bool>>) -> String {
-        d.iter().enumerate().filter(|(_, e)| e.is_some()).map(|(i, e)| {
+        d.iter().enumerate().map(|(i, e)| {
             if *e == Some(true) {('A' as u8 + i as u8) as char}
-            else {('a' as u8 + i as u8) as char}
+            else if *e == Some(false) {('a' as u8 + i as u8) as char}
+            else {'_'}
         }).collect()
     }
     for d in ds {
@@ -364,16 +365,16 @@ fn main() {
 
     let ds = decision_set(&decisions);
 
-    print_simplified_decisions(&simplify(&ds, 0, 4));
+    print_simplified_decisions(&simplify(&ds, 0, 4));*/
 
-    let states12 = passable_states(states(13));*/
+    let states12 = passable_states(states(13));
 
-    let decisions = to_decisions(&solve_all(&states12), 8);
+    let decisions = to_decisions(&solve_all(&states12), 9);
     println!("{:?}", print_decisions(&decisions));
 
     let ds = decision_set(&decisions);
 
-    print_simplified_decisions(&simplify(&ds, 0, 8));
+    print_simplified_decisions(&simplify(&ds, 0, 9));
 
     let file = File::open("input").expect("Failed to open input");
     let reader = BufReader::new(file);
@@ -447,31 +448,83 @@ RUN
 ");*/
 
 /*
-aDeH
-aDE
-ABcD_f_H
-ABcD_FgH
-Ab_De__H
-Ab_DEFgH
-Ab_DEf_H
+a:
+a__DEF___
+a__DEf_H_
+a__DEf_hI
+a__De__H_
 
-a
-DH &&
-_Bc__f__
-_Bc__Fg_
-_b__e___
-_b__EFg_
-_b__Ef__
+#Ab_DEFgH_
+#Ab_DEf_H_
+#Ab_De__H_
+#ABcD_FgH_
+#ABcD_f_H_
+
+H && D:
+_b__e____
+_b__Ef___
+_b__EFg__
+
+__Bc__Fg__
+__Bc__f___
+
+*/
+// x = (!F | (F & !G))
+// x = !F | !G
+// !x = F & G
+// (B & !C & x) | (!B & (!E | (E & x)))
+// (B & !C & x) | (!B & (!E | x))
+// (B & !C & x) = (B & !C & (!F | !G)) = !(!B | C | !x) = !(!B | C | (F & G))
+// (!B & (!E | x)) = (!B & (!E | (!F | !G))) = !(B | (E & !x)) = !(B | (E & F & G))
+/*
+// Sunday morning hopefully got it
+// (B & !C & (!F | !G))
+NOT G T
+NOT F J
+OR J T
+NOT C J
+AND B J
+AND T J
+// !(B | (E & !x)) 
+NOT T T
+AND E T
+OR B T
+NOT T T
+OR T J
+
+// D & H & (complex)
+AND D J
+AND H J
+// | !A
+NOT A T
+OR T J
+*/
+/*
+NOT G T
+NOT F J
+OR J T
+NOT E J
+OR T J
+NOT B T
+AND T J
+NOT G T
 */
         let mut prog = from_ascii(
-r"
-B AND NOT (C OR NOT (F AND G))
-NOT B AND (NOT E OR (E AND (NOT F OR (F AND NOT G)))
-
+r"NOT G T
+NOT F J
+OR J T
+NOT C J
+AND B J
+AND T J
+NOT T T
+AND E T
+OR B T
+NOT T T
+OR T J
+AND D J
 AND H J
 NOT A T
 OR T J
-AND D J
 RUN
 ");
 
